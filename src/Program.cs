@@ -22,6 +22,12 @@ namespace FreeAgentSniper
 
                 return 1;
             }
+            catch (Exception e)
+            {Console.Error.WriteLine(e.ToString());
+                
+
+                return 1;
+            }
         }
     }
 }

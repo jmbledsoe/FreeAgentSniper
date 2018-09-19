@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -24,7 +25,7 @@ namespace FreeAgentSniper.Clients
 
         public string BaseUrl { get; set; }
         protected virtual Task<HttpRequestMessage> BeforeSend(HttpRequestMessage request) => Task.FromResult(request);
-        protected virtual Task<HttpResponseMessage> AfterSend(HttpResponseMessage response) => Task.FromResult(response);
+        protected virtual Task<HttpResponseMessage> AfterSend(HttpResponseMessage response, Func<Task<HttpRequestMessage>> requestBuilder) => Task.FromResult(response);
 
         protected HttpContent CreateJsonContent<T>(T content)
         {
@@ -35,23 +36,30 @@ namespace FreeAgentSniper.Clients
 
         protected async Task<HttpResponseMessage> Send(HttpMethod method, string relativeUrl, IDictionary<string, string> query = null, HttpContent content = null)
         {
-            var requestUrl = relativeUrl.StartsWith("http") // HACK: (JMB) Allow absolute or relative URLs
-                ? relativeUrl 
-                : BaseUrl.TrimEnd('/') + relativeUrl;
-
-            if (query != null && query.Any())
-                requestUrl = QueryHelpers.AddQueryString(requestUrl, query);
-
-            var request = new HttpRequestMessage(method, requestUrl)
+            Func<Task<HttpRequestMessage>> requestBuilder = async () =>
             {
-                Content = content
+                var requestUrl = relativeUrl.StartsWith("http") // HACK: (JMB) Allow absolute or relative URLs
+                    ? relativeUrl 
+                    : BaseUrl.TrimEnd('/') + relativeUrl;
+
+                if (query != null && query.Any())
+                    requestUrl = QueryHelpers.AddQueryString(requestUrl, query);
+
+                var req = new HttpRequestMessage(method, requestUrl)
+                {
+                    Content = content
+                };
+
+                req = await BeforeSend(req);
+
+                return req;
             };
-
-            request = await BeforeSend(request).ConfigureAwait(false);
-
-            var response = await client.SendAsync(request).ConfigureAwait(false);
-
-            response = await AfterSend(response).ConfigureAwait(false);
+            
+            var request = await requestBuilder();
+            
+            var response = await client.SendAsync(request);
+            
+            response = await AfterSend(response, requestBuilder);
 
             response.EnsureSuccessStatusCode();
 
@@ -68,7 +76,7 @@ namespace FreeAgentSniper.Clients
 
         protected static async Task<TResponse> Deserialize<TResponse>(HttpResponseMessage response)
         {
-            using (var responseContentStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+            using (var responseContentStream = await response.Content.ReadAsStreamAsync())
             using (var responseContentReader = new JsonTextReader(new StreamReader(responseContentStream)))
             {
                 var serializer = JsonSerializer.Create(settings);

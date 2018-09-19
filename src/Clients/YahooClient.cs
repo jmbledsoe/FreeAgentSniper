@@ -218,7 +218,7 @@ namespace FreeAgentSniper.Clients
             return request;
         }
 
-        protected override async Task<HttpResponseMessage> AfterSend(HttpResponseMessage response)
+        protected override async Task<HttpResponseMessage> AfterSend(HttpResponseMessage response, Func<Task<HttpRequestMessage>> requestBuilder)
         {
             if (response.IsSuccessStatusCode)
                 return response;
@@ -230,9 +230,10 @@ namespace FreeAgentSniper.Clients
                     // Try to refresh the access token and execute the request again
                     await RefreshToken();
 
-                    await BeforeSend(response.RequestMessage);
-
-                    return await client.SendAsync(response.RequestMessage);
+                    // (Build a new request since request objects cannot be resent)
+                    var retryRequest = await requestBuilder();
+                    
+                    return await client.SendAsync(retryRequest);
                 }
                 default:
                     // API errors and OAuth errors come back slightly differently,
